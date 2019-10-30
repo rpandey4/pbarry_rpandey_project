@@ -104,13 +104,50 @@ def get_baseline_results_embeddings(data_dict, file_type, word_embedding, distan
     return out_file_name
 
 
+def train(data_dict, word_embedding, distance, model):
+    print("Loading Embeddings Model\n")
+    if word_embedding == "word2vec":
+        model, dims = (gensim.models.KeyedVectors.load_word2vec_format(WORD2VEC_PATH, binary=True), 300)
+    else:
+        model, dims = get_glove_data(train_size=word_embedding.split("_")[-1])
+    print("Computing %s distance for similarity" % (distance))
+    train_set = data_dict['train']
+    valid_set = data_dict['valid']
+    predicted = []
+    is_binary = True if word_embedding == "word2vec" else False
+    train_X = []
+    train_Y = []
+    for i in range(len(train_set)):
+        text1 = train_set.loc[i, "text1"]
+        text2 = train_set.loc[i, "text2"]
+        embed_1 = get_word_embedding(text1, model, dims, is_binary)
+        embed_2 = get_word_embedding(text2, model, dims, is_binary)
+        train_X.append(np.concatenate((embed_1, embed_2)))
+        train_Y.append(train_set.loc[i, "score"])
+    train_X = np.array(train_X)
+    train_Y = np.array(train_Y)
+
+        # predicted.append(np.dot(embed_1, embed_2) / (np.linalg.norm(embed_1) * np.linalg.norm(embed_2)))
+    predicted = [x * 5 for x in predicted]  # scale to 5
+
+    now = datetime.datetime.now()
+    out_file_name = "output/%s_%s_%s.txt" % ('test', word_embedding, now.strftime("%Y_%m_%d_%H_%M"))
+    with open(out_file_name, "w") as f:
+        for p in predicted:
+            f.write("%.3f\n" % (p))
+    print("Saved the predicted scores in %s " % (out_file_name))
+    return out_file_name
+
+def test(data_dict, file_type, word_embedding, distance):
+    pass
+
 class LogReg(nn.Module):
     def __init__(self, dims):
         super().__init__()
         self.linear = nn.Linear(dims, 1)
         self.sigmoid = nn.Sigmoid()
     def forward(self, x):
-        return self.sigmoid(self.linear(x))
+        return 5*self.sigmoid(self.linear(x))
 
 class FFNN(nn.Module):
     def __init__(self, dims, hidden_nodes):
@@ -146,6 +183,9 @@ def main():
     train, dev, test = load_data(data_path=args.path)
     data_dict = {"train": train, "dev": dev, "test": test}
     print("Train #%d | Dev #%d | Test #%d\n%s" % (len(train), len(dev), len(test), "*"*100))
+    model = LogReg(600)
+    train(data_dict, word_embedding=args.word_embedding, distance=args.distance, model=model)
+    test(data_dict, word_embedding=args.word_embedding, distance=args.distance, model=model)
     out_file_name = get_baseline_results_embeddings(data_dict,
                                                     file_type=args.eval_data_type,
                                                     word_embedding=args.word_embedding,
