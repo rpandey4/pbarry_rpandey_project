@@ -28,12 +28,12 @@ def load_data(data_path):
     train_path = os.path.join(data_path, "sts-train.csv")
     dev_path = os.path.join(data_path, "sts-dev.csv")
     test_path = os.path.join(data_path, "sts-test.csv")
-    train = pd.read_csv(train_path, delimiter='\t', header=None, names=['genre', 'a', 'as', 'asd','score', 'category', 'text1', 'text2'])
+    train = pd.read_csv(train_path, delimiter='\t', header=None, names=['genre', 'a', 'as', 'asd','score', 'text1', 'text2'], quoting=3)
     train['category'] = train['score'].apply(lambda x: round(float(x)))
-    dev = pd.read_csv(dev_path, delimiter='\t', header=None, names=['genre', 'a', 'as', 'asd', 'score', 'category', 'text1', 'text2'])
+    dev = pd.read_csv(dev_path, delimiter='\t', header=None, names=['genre', 'a', 'as', 'asd', 'score', 'text1', 'text2'], quoting=3)
     dev['category'] = dev['score'].apply(lambda x: round(float(x)))
     test = pd.DataFrame()
-    # test = pd.read_csv(test_path, delimiter='\t', header=None, names=['genre', 'a', 'as', 'asd', 'score', 'category', 'text1', 'text2'])
+    # test = pd.read_csv(test_path, delimiter='\t', header=None, names=['genre', 'a', 'as', 'asd', 'score', 'text1', 'text2'])
     # test['category'] = test['score'].apply(lambda x: round(float(x)))
     return train, dev, test
 
@@ -44,6 +44,7 @@ def get_word_embedding(text, model, dims, is_binary=False):
     """
     feat = np.zeros(dims)
     cnt = 0
+    # print('|'+text+'|')
     for word in word_tokenize(text):
         if is_binary:
             if word in model.wv.vocab:
@@ -104,19 +105,20 @@ def get_baseline_results_embeddings(data_dict, file_type, word_embedding, distan
     return out_file_name
 
 
-def train(data_dict, word_embedding, distance, model):
+def train(data_dict, word_embedding, classifier):
     print("Loading Embeddings Model\n")
     if word_embedding == "word2vec":
         model, dims = (gensim.models.KeyedVectors.load_word2vec_format(WORD2VEC_PATH, binary=True), 300)
     else:
         model, dims = get_glove_data(train_size=word_embedding.split("_")[-1])
-    print("Computing %s distance for similarity" % (distance))
     train_set = data_dict['train']
-    valid_set = data_dict['valid']
+    valid_set = data_dict['dev']
     predicted = []
     is_binary = True if word_embedding == "word2vec" else False
     train_X = []
     train_Y = []
+    valid_X = []
+    valid_Y = []
     for i in range(len(train_set)):
         text1 = train_set.loc[i, "text1"]
         text2 = train_set.loc[i, "text2"]
@@ -124,10 +126,54 @@ def train(data_dict, word_embedding, distance, model):
         embed_2 = get_word_embedding(text2, model, dims, is_binary)
         train_X.append(np.concatenate((embed_1, embed_2)))
         train_Y.append(train_set.loc[i, "score"])
-    train_X = np.array(train_X)
-    train_Y = np.array(train_Y)
+    train_X = torch.FloatTensor(np.array(train_X)).cuda()
+    train_Y = torch.FloatTensor(np.array(train_Y).reshape((-1,1))).cuda()
 
-        # predicted.append(np.dot(embed_1, embed_2) / (np.linalg.norm(embed_1) * np.linalg.norm(embed_2)))
+    for i in range(len(valid_set)):
+        text1 = valid_set.loc[i, "text1"]
+        text2 = valid_set.loc[i, "text2"]
+        embed_1 = get_word_embedding(text1, model, dims, is_binary)
+        embed_2 = get_word_embedding(text2, model, dims, is_binary)
+        valid_X.append(np.concatenate((embed_1, embed_2)))
+        valid_Y.append(train_set.loc[i, "score"])
+    valid_X = torch.FloatTensor(np.array(valid_X)).cuda()
+    valid_Y = torch.FloatTensor(np.array(valid_Y).reshape((-1, 1))).cuda()
+
+    train_Y_scaled = train_Y/5
+    valid_Y_scaled = valid_Y/5
+    opimizer = optim.SGD(classifier.parameters(), lr=0.001)
+    loss_function = nn.MSELoss()
+    history = []
+    count = 0
+    best_weights = None
+    while True:
+        classifier.train()
+        loss_function.zero_grad()
+        yhat = classifier.forward(train_X)
+        loss = loss_function(yhat, train_Y_scaled)
+        loss.backward()
+        print('train',loss)
+        opimizer.step()
+        if count % 100 == 0:
+            print(torch.cat((yhat, train_Y_scaled), dim=1))
+        count+=1
+
+        classifier.eval()
+        yhat = classifier.forward(valid_X)
+        valid_loss = loss_function(yhat, valid_Y_scaled)
+        print('valid', valid_loss)
+        history.append(valid_loss)
+        classifier.zero_grad()
+
+        if len(history) - history.index(min(history)) > 100:
+            classifier.load_state(best_weights)
+            break
+        elif len(history)-1 == history.index(min(history)):
+            'saving state'
+            best_weights = classifier.state_dict()
+
+
+
     predicted = [x * 5 for x in predicted]  # scale to 5
 
     now = datetime.datetime.now()
@@ -138,7 +184,7 @@ def train(data_dict, word_embedding, distance, model):
     print("Saved the predicted scores in %s " % (out_file_name))
     return out_file_name
 
-def test(data_dict, file_type, word_embedding, distance):
+def test(data_dict, file_type, word_embedding, model):
     pass
 
 class LogReg(nn.Module):
@@ -180,12 +226,13 @@ def main():
     parser.add_argument("--distance", type=str, default='cosine')
     args = parser.parse_args()
     print("%s\nSemantic Textual Similarity\nPaul Barry and Rahul Pandey\n%s\n\nLoading Dataset" % ("*"*100, "*"*100))
-    train, dev, test = load_data(data_path=args.path)
-    data_dict = {"train": train, "dev": dev, "test": test}
-    print("Train #%d | Dev #%d | Test #%d\n%s" % (len(train), len(dev), len(test), "*"*100))
-    model = LogReg(600)
-    train(data_dict, word_embedding=args.word_embedding, distance=args.distance, model=model)
-    test(data_dict, word_embedding=args.word_embedding, distance=args.distance, model=model)
+    train_set, dev_set, test_set = load_data(data_path=args.path)
+    print(train_set[['text1', 'text2']].head(10))
+    data_dict = {"train": train_set, "dev": dev_set, "test": test_set}
+    print("Train #%d | Dev #%d | Test #%d\n%s" % (len(train_set), len(dev_set), len(test_set), "*"*100))
+    model = LogReg(600).cuda()
+    train(data_dict, word_embedding=args.word_embedding, classifier=model)
+    test(data_dict, word_embedding=args.word_embedding, model=model)
     out_file_name = get_baseline_results_embeddings(data_dict,
                                                     file_type=args.eval_data_type,
                                                     word_embedding=args.word_embedding,
