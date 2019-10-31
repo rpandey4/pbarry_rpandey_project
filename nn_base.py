@@ -33,8 +33,8 @@ def load_data(data_path):
     dev = pd.read_csv(dev_path, delimiter='\t', header=None, names=['genre', 'a', 'as', 'asd', 'score', 'text1', 'text2'], quoting=3)
     dev['category'] = dev['score'].apply(lambda x: round(float(x)))
     test = pd.DataFrame()
-    # test = pd.read_csv(test_path, delimiter='\t', header=None, names=['genre', 'a', 'as', 'asd', 'score', 'text1', 'text2'])
-    # test['category'] = test['score'].apply(lambda x: round(float(x)))
+    test = pd.read_csv(test_path, delimiter='\t', header=None, names=['genre', 'a', 'as', 'asd', 'score', 'text1', 'text2'], quoting=3)
+    test['category'] = test['score'].apply(lambda x: round(float(x)))
     return train, dev, test
 
 
@@ -164,7 +164,6 @@ def train(data_dict, word_embedding, classifier):
         print('valid', valid_loss)
         history.append(valid_loss)
         classifier.zero_grad()
-
         if len(history) - history.index(min(history)) > 100:
             classifier.load_state_dict(best_weights)
             return
@@ -176,14 +175,13 @@ def train(data_dict, word_embedding, classifier):
 
 
 
-def test(data_dict, word_embedding, model):
+def test(data_dict, word_embedding, classifier):
     print("Loading Embeddings Model\n")
     if word_embedding == "word2vec":
         model, dims = (gensim.models.KeyedVectors.load_word2vec_format(WORD2VEC_PATH, binary=True), 300)
     else:
         model, dims = get_glove_data(train_size=word_embedding.split("_")[-1])
-    test_set = data_dict['train']
-    predicted = []
+    test_set = data_dict['test']
     is_binary = True if word_embedding == "word2vec" else False
     test_X = []
     test_Y = []
@@ -192,11 +190,11 @@ def test(data_dict, word_embedding, model):
         text2 = test_set.loc[i, "text2"]
         embed_1 = get_word_embedding(text1, model, dims, is_binary)
         embed_2 = get_word_embedding(text2, model, dims, is_binary)
-        test_set.append(np.concatenate((embed_1, embed_2)))
-        test_set.append(test_set.loc[i, "score"])
+        test_X.append(np.concatenate((embed_1, embed_2)))
+        test_Y.append(test_set.loc[i, "score"])
     test_X = torch.FloatTensor(np.array(test_X)).cuda()
     test_Y = torch.FloatTensor(np.array(test_Y).reshape((-1, 1))).cuda()
-    yhat = model.forward(test_X)
+    yhat = classifier.forward(test_X)
     yhat = yhat.reshape(-1).cpu().tolist()
     predicted = [x * 5 for x in yhat]  # scale to 5
 
@@ -253,15 +251,15 @@ def main():
     print("Train #%d | Dev #%d | Test #%d\n%s" % (len(train_set), len(dev_set), len(test_set), "*"*100))
     model = LogReg(600).cuda()
     train(data_dict, word_embedding=args.word_embedding, classifier=model)
-    test(data_dict, word_embedding=args.word_embedding, model=model)
-    out_file_name = get_baseline_results_embeddings(data_dict,
-                                                    file_type=args.eval_data_type,
-                                                    word_embedding=args.word_embedding,
-                                                    distance=args.distance)
-    score = evaluate_result(out_file_name, file_type=args.eval_data_type)
-    print("Evaluated %s data by comparing %s distance of its %s word embeddings.\nPearson score = %.4f\n%s"
-            % (args.eval_data_type, args.distance, args.word_embedding, score, "*"*100))
-    return
+    test(data_dict, word_embedding=args.word_embedding, classifier=model)
+    # out_file_name = get_baseline_results_embeddings(data_dict,
+    #                                                 file_type=args.eval_data_type,
+    #                                                 word_embedding=args.word_embedding,
+    #                                                 distance=args.distance)
+    # score = evaluate_result(out_file_name, file_type=args.eval_data_type)
+    # print("Evaluated %s data by comparing %s distance of its %s word embeddings.\nPearson score = %.4f\n%s"
+    #         % (args.eval_data_type, args.distance, args.word_embedding, score, "*"*100))
+    # return
 
 
 if __name__ == '__main__':
