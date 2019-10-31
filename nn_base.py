@@ -141,7 +141,7 @@ def train(data_dict, word_embedding, classifier):
 
     train_Y_scaled = train_Y/5
     valid_Y_scaled = valid_Y/5
-    opimizer = optim.SGD(classifier.parameters(), lr=0.001)
+    opimizer = optim.SGD(classifier.parameters(), lr=0.01)
     loss_function = nn.MSELoss()
     history = []
     count = 0
@@ -166,15 +166,39 @@ def train(data_dict, word_embedding, classifier):
         classifier.zero_grad()
 
         if len(history) - history.index(min(history)) > 100:
-            classifier.load_state(best_weights)
-            break
+            classifier.load_state_dict(best_weights)
+            return
         elif len(history)-1 == history.index(min(history)):
-            'saving state'
+            print('saving state')
             best_weights = classifier.state_dict()
 
 
 
-    predicted = [x * 5 for x in predicted]  # scale to 5
+
+
+def test(data_dict, word_embedding, model):
+    print("Loading Embeddings Model\n")
+    if word_embedding == "word2vec":
+        model, dims = (gensim.models.KeyedVectors.load_word2vec_format(WORD2VEC_PATH, binary=True), 300)
+    else:
+        model, dims = get_glove_data(train_size=word_embedding.split("_")[-1])
+    test_set = data_dict['train']
+    predicted = []
+    is_binary = True if word_embedding == "word2vec" else False
+    test_X = []
+    test_Y = []
+    for i in range(len(test_set)):
+        text1 = test_set.loc[i, "text1"]
+        text2 = test_set.loc[i, "text2"]
+        embed_1 = get_word_embedding(text1, model, dims, is_binary)
+        embed_2 = get_word_embedding(text2, model, dims, is_binary)
+        test_set.append(np.concatenate((embed_1, embed_2)))
+        test_set.append(test_set.loc[i, "score"])
+    test_X = torch.FloatTensor(np.array(test_X)).cuda()
+    test_Y = torch.FloatTensor(np.array(test_Y).reshape((-1, 1))).cuda()
+    yhat = model.forward(test_X)
+    yhat = yhat.reshape(-1).cpu().tolist()
+    predicted = [x * 5 for x in yhat]  # scale to 5
 
     now = datetime.datetime.now()
     out_file_name = "output/%s_%s_%s.txt" % ('test', word_embedding, now.strftime("%Y_%m_%d_%H_%M"))
@@ -183,9 +207,6 @@ def train(data_dict, word_embedding, classifier):
             f.write("%.3f\n" % (p))
     print("Saved the predicted scores in %s " % (out_file_name))
     return out_file_name
-
-def test(data_dict, file_type, word_embedding, model):
-    pass
 
 class LogReg(nn.Module):
     def __init__(self, dims):
