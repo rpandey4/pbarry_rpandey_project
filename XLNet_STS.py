@@ -3,9 +3,10 @@ import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 from torch.utils import data
-from pytorch_transformers import XLNetTokenizer, XLNetModel
+from transformers import XLNetModel, XLNetTokenizer
 
 tokenizer = XLNetTokenizer.from_pretrained('xlnet-large-cased')
+print(tokenizer.all_special_tokens)
 
 class NerDataset(data.Dataset):
     def __init__(self, fpath):
@@ -34,38 +35,46 @@ class NerDataset(data.Dataset):
         # print(words)
         x1 = tokenizer.tokenize(words1)
         x2 = tokenizer.tokenize(words2)
+        x1_x2 = x1 + ['<sep>'] + x2 + ['<sep>', '<cls>']
+
         x1 = tokenizer.convert_tokens_to_ids(x1)
         x2 = tokenizer.convert_tokens_to_ids(x2)
+        x1_x2 = tokenizer.convert_tokens_to_ids(x1_x2)
+        # print(x1_x2)
         y = tags
 
         # assert len(x)==len(y)==len(is_heads), f"len(x)={len(x)}, len(y)={len(y)}"
         seqlen1 = len(x1)
         seqlen2 = len(x2)
+        seqlen3 = len(x1_x2)
         # if seqlen >= 190:  # Because 32 batch size and the longest sample will overrun my VRAM
         #     return [], [], [], [], [], 0
-        return words1, words2, x1, x2, y, seqlen1, seqlen2
+        return words1, words2, x1, x2, y, seqlen1, seqlen2, seqlen3, x1_x2
 
 def pad(batch):
     '''Zero pads each batch to the longest sample'''
     f = lambda x: [sample[x] for sample in batch]
     words1 = f(0)
     words2 = f(1)
-    x1 = f(2)
-    x2 = f(3)
     y = f(4)
     # is_heads = f(4)
-    seqlens1 = f(-2)
-    seqlens2 = f(-1)
+    seqlens1 = f(5)
+    seqlens2 = f(6)
+    seqlens3 = f(7)
     maxlen1 = np.array(seqlens1).max()
     maxlen2 = np.array(seqlens2).max()
+    maxlen3 = np.array(seqlens3).max()
 
     f = lambda x, seqlen: [sample[x] + [0] * (seqlen - len(sample[x])) for sample in batch]  # pads each sequence with 0 values
     x1 = f(2, maxlen1)
     x2 = f(3, maxlen2)
 
-    f = torch.LongTensor
+    f = lambda x, seqlen: [([0] * (seqlen - len(sample[x])) + sample[x]) for sample in batch]
+    x1_x2 = f(8, maxlen3)
 
-    return words1, words2, f(x1), f(x2), torch.FloatTensor(y), seqlens1, seqlens2
+    f = torch.LongTensor
+    # print(x1_x2)
+    return words1, words2, f(x1), f(x2), torch.FloatTensor(y), seqlens1, seqlens2, seqlens3, f(x1_x2)
 
 #  Load the data set for training and validating
 trainset = NerDataset('./data/sts-train.csv')
@@ -80,32 +89,33 @@ class RecurrentNeuralNetwork(nn.Module):
         super(RecurrentNeuralNetwork, self).__init__()
         self.xlnet = XLNetModel.from_pretrained('xlnet-large-cased')
         # self.rnn = nn.RNN(input_size=1024, bidirectional=True, hidden_size=1024//2, num_layers=3, batch_first=True)
-        self.linear1 = nn.Linear(2048, 1024)
+        self.linear1 = nn.Linear(1024, 1024)
         self.linear2 = nn.Linear(1024, 512)
         self.linear3 = nn.Linear(512, 1)
-        self.activation = nn.Tanh()
+        self.activation = nn.ReLU()
 
-    def forward(self, x1, x2):
-        x1, _ = self.xlnet(x1.cuda())
-        x1 = torch.sum(x1, dim=1)
-        x2, _ = self.xlnet(x2.cuda())
-        x2 = torch.sum(x2, dim=1)
-        x = torch.cat((x1, x2), dim=1)
+    def forward(self, x1_x2):
+        x1_x2 = self.xlnet(x1_x2.cuda())[0]
+        x1_x2 = x1_x2[:, -1, :]# .reshape((-1, 2048))
+        # x1 = torch.sum(x1, dim=1)
+        # x2, _ = self.xlnet(x2.cuda())
+        # x2 = torch.sum(x2, dim=1)
+        # x = torch.cat((x1, x2), dim=1)
         # out, _ = self.rnn(x)  # Passes x matrix through RNN
-        z1 = self.activation(self.linear1(x))  # Linear transformation from RNN's output to the number of classes
+        z1 = self.activation(self.linear1(x1_x2))  # Linear transformation from RNN's output to the number of classes
         z2 = self.activation(self.linear2(z1))
         z3 = self.linear3(z2)
         return z3
 
-    def predict(self, x1, x2):
+    def predict(self, x1_x2):
         '''
         If doing predictions, call this so that argmax returns the integer of the max index
         '''
-        return self.forward(x1, x2)
+        return self.forward(x1_x2)
 
 model = RecurrentNeuralNetwork()  # RNN with embedding object
 model.cuda()  #send model to the GPU
-optimizer = optim.Adam(model.parameters(), lr=1e-5)  # Optimizing with Adam
+optimizer = optim.Adam(model.parameters(), lr=3e-6)  # Optimizing with Adam
 loss_func = nn.MSELoss()
 
 history = []  # list for storing historical F1 scores. Used for early stopping.
@@ -114,9 +124,9 @@ run = True
 while run:
     model.train()
     for i, batch in enumerate(train_iter):  # Runs batches on training set
-        words1, words2, x1, x2, y, seqlens1, seqlens2 = batch
+        words1, words2, x1, x2, y, seqlen1, seqlen2, seqlen3, x1_x2 = batch
         optimizer.zero_grad()  # zero all gradients
-        yhat = model(x1, x2)  # Forward pass through Neural Net
+        yhat = model(x1_x2)  # Forward pass through Neural Net
 
         yhat = yhat.reshape(-1) # reshapes to (num_sequences * sequence_length, num_classes)
         y = y.reshape(-1)  # reshapes to (num_sequences * sequence_length)
@@ -133,8 +143,8 @@ while run:
     ys, yhs = [], []
     with torch.no_grad():  # Don't store gradients.
         for i, batch in enumerate(valid_iter):
-            words1, words2, x1, x2, y, seqlens1, seqlens2 = batch
-            yhat = model.predict(x1, x2).to(torch.float32)
+            words1, words2, x1, x2, y, seqlen1, seqlen2, seqlen3, x1_x2 = batch
+            yhat = model.predict(x1_x2).to(torch.float32)
             yhs.extend(yhat.tolist())
             ys.extend(y.tolist())
             # print(y.dtype)
@@ -147,7 +157,7 @@ while run:
             # current_valiation_loss += lv
     # print(current_valiation_loss)
     mse_loss = nn.MSELoss()
-    mse_loss = mse_loss(torch.FloatTensor(yhs), torch.FloatTensor(ys))
+    mse_loss = mse_loss(torch.FloatTensor(yhs).flatten(), torch.FloatTensor(ys).flatten())
     print("Validation Mean Squared Error:", mse_loss)
     history.append(mse_loss)
 
@@ -159,15 +169,20 @@ while run:
     history.reverse()
 
 model.load_state_dict(best_weights)  # Load the best weights
+# model = XLNetModel.from_pretrained('xlnet-large-cased')
 
 model.eval()
 yhats = []
 with torch.no_grad():
     for i, batch in enumerate(test_iter):
-        words1, words2, x1, x2, y, seqlens1, seqlens2 = batch
+        words1, words2, x1, x2, y, seqlen1, seqlen2, seqlen3, x1_x2 = batch
+        # yhat, _ = model(x1_x2)
 
-        y_hat = model.predict(x1, x2)
+        y_hat = model(x1_x2)
         yhats.extend(y_hat.tolist())
+        # print(x1.shape)
+        # print(x2.shape)
+        # yhats.append(yhat)
 
 ## save test results to file and compute metrics
 with open("./output/test_xlnet.txt", 'w') as fout:
