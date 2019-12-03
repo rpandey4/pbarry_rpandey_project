@@ -3,9 +3,9 @@ import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 from torch.utils import data
-from transformers import XLNetModel, XLNetTokenizer
+from transformers import RobertaModel, RobertaTokenizer
 
-tokenizer = XLNetTokenizer.from_pretrained('xlnet-large-cased')
+tokenizer = RobertaTokenizer.from_pretrained('roberta-large')
 print(tokenizer.all_special_tokens)
 
 class NerDataset(data.Dataset):
@@ -35,7 +35,7 @@ class NerDataset(data.Dataset):
         # print(words)
         x1 = tokenizer.tokenize(words1)
         x2 = tokenizer.tokenize(words2)
-        x1_x2 = x1 + ['<sep>'] + x2 + ['<sep>', '<cls>']
+        x1_x2 = ['<s>'] + x1 + ['</s>'] + x2 + ['</s>']
 
         x1 = tokenizer.convert_tokens_to_ids(x1)
         x2 = tokenizer.convert_tokens_to_ids(x2)
@@ -87,24 +87,24 @@ test_iter = data.DataLoader(dataset=testset, batch_size=32, shuffle=False, colla
 class RecurrentNeuralNetwork(nn.Module):
     def __init__(self):
         super(RecurrentNeuralNetwork, self).__init__()
-        self.xlnet = XLNetModel.from_pretrained('xlnet-large-cased')
-        # self.rnn = nn.RNN(input_size=1024, bidirectional=True, hidden_size=1024//2, num_layers=3, batch_first=True)
-        self.linear1 = nn.Linear(1024, 1024)
+        self.xlnet = RobertaModel.from_pretrained('roberta-large')
+        self.rnn = nn.RNN(input_size=1024, bidirectional=True, hidden_size=1024//2, num_layers=2, batch_first=True)
+        self.linear1 = nn.Linear(1024, 1)
         self.linear2 = nn.Linear(1024, 512)
         self.linear3 = nn.Linear(512, 1)
         self.activation = nn.ReLU()
 
     def forward(self, x1_x2):
         x1_x2 = self.xlnet(x1_x2.cuda())[0]
-        x1_x2 = x1_x2[:, -1, :]# .reshape((-1, 2048))
+        # x1_x2 = x1_x2[:, 0, :]# .reshape((-1, 2048))
         # x1 = torch.sum(x1, dim=1)
         # x2, _ = self.xlnet(x2.cuda())
         # x2 = torch.sum(x2, dim=1)
         # x = torch.cat((x1, x2), dim=1)
-        # out, _ = self.rnn(x)  # Passes x matrix through RNN
-        z1 = self.activation(self.linear1(x1_x2))  # Linear transformation from RNN's output to the number of classes
-        z2 = self.activation(self.linear2(z1))
-        z3 = self.linear3(z2)
+        out, _ = self.rnn(x1_x2)  # Passes x matrix through RNN
+        # z1 = self.activation(self.linear1(x1_x2))  # Linear transformation from RNN's output to the number of classes
+        # z2 = self.activation(self.linear2(z1))
+        z3 = self.linear1(out[:, 0, :])
         return z3
 
     def predict(self, x1_x2):
@@ -115,7 +115,7 @@ class RecurrentNeuralNetwork(nn.Module):
 
 model = RecurrentNeuralNetwork()  # RNN with embedding object
 model.cuda()  #send model to the GPU
-optimizer = optim.Adam(model.parameters(), lr=3e-6)  # Optimizing with Adam
+optimizer = optim.Adam(model.parameters(), lr=1e-5)  # Optimizing with Adam
 loss_func = nn.MSELoss()
 
 history = []  # list for storing historical F1 scores. Used for early stopping.
