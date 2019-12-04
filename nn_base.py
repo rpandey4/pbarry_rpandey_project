@@ -164,7 +164,7 @@ def train(data_dict, word_embedding, classifier):
         print('valid', valid_loss)
         history.append(valid_loss)
         classifier.zero_grad()
-        if len(history) - history.index(min(history)) > 100:
+        if len(history) - history.index(min(history)) > 10:
             classifier.load_state_dict(best_weights)
             return
         elif len(history)-1 == history.index(min(history)):
