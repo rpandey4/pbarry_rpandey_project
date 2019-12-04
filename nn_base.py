@@ -212,7 +212,7 @@ class LogReg(nn.Module):
         self.linear = nn.Linear(dims, 1)
         self.sigmoid = nn.Sigmoid()
     def forward(self, x):
-        return 5*self.sigmoid(self.linear(x))
+        return self.sigmoid(self.linear(x))
 
 class FFNN(nn.Module):
     def __init__(self, dims, hidden_nodes):
