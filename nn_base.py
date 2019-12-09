@@ -1,4 +1,8 @@
 import argparse
+import imp
+import sys
+sys.modules["sqlite"] = imp.new_module("sqlite")
+sys.modules["sqlite3.dbapi2"] = imp.new_module("sqlite.dbapi2")
 import os
 import pandas as pd
 import gensim
@@ -12,6 +16,13 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+from torch.autograd import Variable
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+import string
+
+
+STOPWORDS = set(stopwords.words("english"))
 
 np.set_printoptions(precision=30)
 np.random.seed(1)  # random seeding for reproducability
@@ -19,6 +30,12 @@ np.random.seed(1)  # random seeding for reproducability
 WORD2VEC_PATH = "data/GoogleNews-vectors-negative300.bin"
 GLOVE_PATH = {"42b": "",
             "840b": "/Users/rahulpandey/Downloads/mason/data/input/word_embeddings/glove.840B.300d.txt"}
+
+
+def pre_process_text(text):
+    text_split = word_tokenize(text)
+    text_split = [x for x in text_split if x not in STOPWORDS and x not in string.punctuation]  # removing stop words
+    return " ".join(text_split)
 
 
 def load_data(data_path):
@@ -54,7 +71,7 @@ def get_word_embedding(text, model, dims, is_binary=False):
             if word in model.keys():
                 feat += model[word]
                 cnt += 1
-    feat /= min(cnt, 1)
+    feat /= max(cnt, 1)
     return feat
 
 
@@ -105,12 +122,12 @@ def get_baseline_results_embeddings(data_dict, file_type, word_embedding, distan
     return out_file_name
 
 
-def train(data_dict, word_embedding, classifier):
-    print("Loading Embeddings Model\n")
-    if word_embedding == "word2vec":
-        model, dims = (gensim.models.KeyedVectors.load_word2vec_format(WORD2VEC_PATH, binary=True), 300)
-    else:
-        model, dims = get_glove_data(train_size=word_embedding.split("_")[-1])
+def train(data_dict, word_embedding, classifier, model, dims, max_run):
+    # print("Loading Embeddings Model\n")
+    # if word_embedding == "word2vec":
+    #     model, dims = (gensim.models.KeyedVectors.load_word2vec_format(WORD2VEC_PATH, binary=True), 300)
+    # else:
+    #     model, dims = get_glove_data(train_size=word_embedding.split("_")[-1])
     train_set = data_dict['train']
     valid_set = data_dict['dev']
     predicted = []
@@ -121,7 +138,9 @@ def train(data_dict, word_embedding, classifier):
     valid_Y = []
     for i in range(len(train_set)):
         text1 = train_set.loc[i, "text1"]
+        text1 = pre_process_text(text1)
         text2 = train_set.loc[i, "text2"]
+        text2 = pre_process_text(text2)
         embed_1 = get_word_embedding(text1, model, dims, is_binary)
         embed_2 = get_word_embedding(text2, model, dims, is_binary)
         train_X.append(np.concatenate((embed_1, embed_2)))
@@ -131,7 +150,9 @@ def train(data_dict, word_embedding, classifier):
 
     for i in range(len(valid_set)):
         text1 = valid_set.loc[i, "text1"]
+        text1 = pre_process_text(text1)
         text2 = valid_set.loc[i, "text2"]
+        text2 = pre_process_text(text2)
         embed_1 = get_word_embedding(text1, model, dims, is_binary)
         embed_2 = get_word_embedding(text2, model, dims, is_binary)
         valid_X.append(np.concatenate((embed_1, embed_2)))
@@ -139,8 +160,8 @@ def train(data_dict, word_embedding, classifier):
     valid_X = torch.FloatTensor(np.array(valid_X)).cuda()
     valid_Y = torch.FloatTensor(np.array(valid_Y).reshape((-1, 1))).cuda()
 
-    train_Y_scaled = train_Y/5
-    valid_Y_scaled = valid_Y/5
+    train_Y_scaled = train_Y/5.
+    valid_Y_scaled = valid_Y/5.
     opimizer = optim.SGD(classifier.parameters(), lr=0.01)
     loss_function = nn.MSELoss()
     history = []
@@ -152,7 +173,7 @@ def train(data_dict, word_embedding, classifier):
         yhat = classifier.forward(train_X)
         loss = loss_function(yhat, train_Y_scaled)
         loss.backward()
-        print('train',loss)
+        print('train loss:', (Variable(loss).data).cpu().numpy())
         opimizer.step()
         if count % 100 == 0:
             print(torch.cat((yhat, train_Y_scaled), dim=1))
@@ -161,10 +182,10 @@ def train(data_dict, word_embedding, classifier):
         classifier.eval()
         yhat = classifier.forward(valid_X)
         valid_loss = loss_function(yhat, valid_Y_scaled)
-        print('valid', valid_loss)
+        print('valid loss:', (Variable(valid_loss).data).cpu().numpy())
         history.append(valid_loss)
         classifier.zero_grad()
-        if len(history) - history.index(min(history)) > 100:
+        if len(history) - history.index(min(history)) > max_run:
             classifier.load_state_dict(best_weights)
             return
         elif len(history)-1 == history.index(min(history)):
@@ -173,21 +194,16 @@ def train(data_dict, word_embedding, classifier):
 
 
 
-
-
-def test(data_dict, word_embedding, classifier):
-    print("Loading Embeddings Model\n")
-    if word_embedding == "word2vec":
-        model, dims = (gensim.models.KeyedVectors.load_word2vec_format(WORD2VEC_PATH, binary=True), 300)
-    else:
-        model, dims = get_glove_data(train_size=word_embedding.split("_")[-1])
+def test(data_dict, word_embedding, classifier, model, dims):
     test_set = data_dict['test']
     is_binary = True if word_embedding == "word2vec" else False
     test_X = []
     test_Y = []
     for i in range(len(test_set)):
         text1 = test_set.loc[i, "text1"]
+        text1 = pre_process_text(text1)
         text2 = test_set.loc[i, "text2"]
+        text2 = pre_process_text(text2)
         embed_1 = get_word_embedding(text1, model, dims, is_binary)
         embed_2 = get_word_embedding(text2, model, dims, is_binary)
         test_X.append(np.concatenate((embed_1, embed_2)))
@@ -212,13 +228,13 @@ class LogReg(nn.Module):
         self.linear = nn.Linear(dims, 1)
         self.sigmoid = nn.Sigmoid()
     def forward(self, x):
-        return 5*self.sigmoid(self.linear(x))
+        return self.sigmoid(self.linear(x))
 
 class FFNN(nn.Module):
     def __init__(self, dims, hidden_nodes):
         super().__init__()
         self.linear = nn.Linear(dims, hidden_nodes)
-        self.linear2 = nn.Linear(dims, 1)
+        self.linear2 = nn.Linear(hidden_nodes, 1)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
@@ -249,16 +265,25 @@ def main():
     print(train_set[['text1', 'text2']].head(10))
     data_dict = {"train": train_set, "dev": dev_set, "test": test_set}
     print("Train #%d | Dev #%d | Test #%d\n%s" % (len(train_set), len(dev_set), len(test_set), "*"*100))
-    model = LogReg(600).cuda()
-    train(data_dict, word_embedding=args.word_embedding, classifier=model)
-    test(data_dict, word_embedding=args.word_embedding, classifier=model)
-    # out_file_name = get_baseline_results_embeddings(data_dict,
-    #                                                 file_type=args.eval_data_type,
-    #                                                 word_embedding=args.word_embedding,
-    #                                                 distance=args.distance)
-    # score = evaluate_result(out_file_name, file_type=args.eval_data_type)
-    # print("Evaluated %s data by comparing %s distance of its %s word embeddings.\nPearson score = %.4f\n%s"
-    #         % (args.eval_data_type, args.distance, args.word_embedding, score, "*"*100))
+    print("Loading Embeddings Model\n")
+    if args.word_embedding == "word2vec":
+        w_model, dims = (gensim.models.KeyedVectors.load_word2vec_format(WORD2VEC_PATH, binary=True), 300)
+    else:
+        w_model, dims = get_glove_data(train_size=word_embedding.split("_")[-1])
+    for k in range(1, 100, 10):
+        max_run = 100 * k
+        print("Max Run", max_run)
+        model = LogReg(600).cuda()
+        # model = FFNN(600, 300).cuda()
+        train(data_dict, word_embedding=args.word_embedding, classifier=model, model=w_model, dims=dims, max_run=max_run)
+        out_file_name = test(data_dict, word_embedding=args.word_embedding, classifier=model, model=w_model, dims=dims)
+        # out_file_name = get_baseline_results_embeddings(data_dict,
+        #                                                 file_type=args.eval_data_type,
+        #                                                 word_embedding=args.word_embedding,
+        #                                                 distance=args.distance)
+        score = evaluate_result(out_file_name, file_type=args.eval_data_type)
+        print("Evaluated %s data by comparing %s distance of its %s word embeddings.\nPearson score = %.4f\n%s"
+                % (args.eval_data_type, args.distance, args.word_embedding, score, "*"*100))
     # return
 
 
