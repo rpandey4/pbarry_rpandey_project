@@ -3,9 +3,9 @@ import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 from torch.utils import data
-from transformers import XLNetModel, XLNetTokenizer
+from transformers import BertModel, BertTokenizer
 
-tokenizer = XLNetTokenizer.from_pretrained('xlnet-large-cased')
+tokenizer = BertTokenizer.from_pretrained('bert-large-cased')
 print(tokenizer.all_special_tokens)
 
 class StsDataset(data.Dataset):
@@ -33,7 +33,7 @@ class StsDataset(data.Dataset):
         words1, words2, tags = self.sents1[idx], self.sents2[idx], self.tags[idx]
         x1 = tokenizer.tokenize(words1)
         x2 = tokenizer.tokenize(words2)
-        x1_x2 = x1 + ['<sep>'] + x2 + ['<sep>', '<cls>']
+        x1_x2 = ['[CLS]'] + x1 + ['[SEP]'] + x2
 
         x1 = tokenizer.convert_tokens_to_ids(x1)
         x2 = tokenizer.convert_tokens_to_ids(x2)
@@ -62,7 +62,7 @@ def pad(batch):
     x1 = f(2, maxlen1)
     x2 = f(3, maxlen2)
 
-    f = lambda x, seqlen: [([0] * (seqlen - len(sample[x])) + sample[x]) for sample in batch]
+    f = lambda x, seqlen: [sample[x] + ([0] * (seqlen - len(sample[x]))) for sample in batch]
     x1_x2 = f(8, maxlen3)
 
     f = torch.LongTensor
@@ -79,7 +79,7 @@ test_iter = data.DataLoader(dataset=testset, batch_size=32, shuffle=False, colla
 class StsClassifier(nn.Module):
     def __init__(self):
         super(StsClassifier, self).__init__()
-        self.xlnet = XLNetModel.from_pretrained('xlnet-large-cased')
+        self.xlnet = BertModel.from_pretrained('bert-large-cased')
         # self.rnn = nn.RNN(input_size=1024, bidirectional=True, hidden_size=1024//2, num_layers=2, batch_first=True)
         self.linear1 = nn.Linear(1024, 1024)
         self.linear2 = nn.Linear(1024, 512)
@@ -158,6 +158,6 @@ with torch.no_grad():
         yhats.extend(y_hat.tolist())
 
 # save test results to file to compute Pearson Correlation Coefficient
-with open("./output/test_xlnet.txt", 'w') as fout:
+with open("./output/test_bert.txt", 'w') as fout:
     for yhat in yhats:
         fout.write("%f\n"%yhat[0])
