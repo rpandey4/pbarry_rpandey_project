@@ -1,3 +1,41 @@
+"""
+Author: Paul Barry and Rahul Pandey
+Description: AIT726 Term Project
+Usage: python self_attention_STS.py
+Arguments:
+    --train_set for training data file
+    --valid_set for validation data file
+    --test_set for test data file
+    --learning_rate to set the learning rate of the file
+    --output_file to set the path and filename for the model's predictions
+    --early_stopping to set the early stopping threshold
+Best pearson correlation coefficient uses default parameters to achieve 89.58.
+
+Flow:
+i. main
+ii. Parse arguments
+iii. Generate dataset
+    1. Open and preprocess train, validation, and test datasets.
+    2. Stored in StsDataset objects
+v. Train the model
+    1. Load pretrained BERT weights and initialize FFNN weights
+    2. Create Loss and Optimization objects
+    3. for each epoch
+        a. For each batch
+            I. calculate y_hat from forward pass
+            II. Calculate loss from y_hat to y
+            III. Update the weigths with gradient times learning rate
+        b. Do forward pass with validation set.
+        c. Calculate loss on validation set.
+        d. If new minimum loss on validation set, then save weights to RAM.
+        e. If early stopping threshold hit without improvement on validation set, then end training.
+vi. Test the model
+    1. Forward pass through test dataset.
+    2. Write prediction to output file.
+
+"""
+
+import argparse
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -6,14 +44,13 @@ from torch.utils import data
 from transformers import XLNetModel, XLNetTokenizer
 
 tokenizer = XLNetTokenizer.from_pretrained('xlnet-large-cased')
-print(tokenizer.all_special_tokens)
 
 class StsDataset(data.Dataset):
     def __init__(self, fpath):
         """
         When given a file path, this loads the dataset for use in training.
         """
-        entries = open(fpath, 'r')  #.read()  #.strip().split("\n")
+        entries = open(fpath, 'r')  # open file
         sents1, sents2, tags = [], [], []
         for line in entries:
             if line != '':
@@ -33,7 +70,7 @@ class StsDataset(data.Dataset):
         words1, words2, tags = self.sents1[idx], self.sents2[idx], self.tags[idx]
         x1 = tokenizer.tokenize(words1)
         x2 = tokenizer.tokenize(words2)
-        x1_x2 = x1 + ['<sep>'] + x2 + ['<sep>', '<cls>']
+        x1_x2 = x1 + ['<sep>'] + x2 + ['<sep>', '<cls>']  # creates the string to feed into XLNet
 
         x1 = tokenizer.convert_tokens_to_ids(x1)
         x2 = tokenizer.convert_tokens_to_ids(x2)
@@ -68,19 +105,10 @@ def pad(batch):
     f = torch.LongTensor
     return words1, words2, f(x1), f(x2), torch.FloatTensor(y), seqlens1, seqlens2, seqlens3, f(x1_x2)
 
-#  Load the data set for training and validating
-trainset = StsDataset('./data/sts-train.csv')
-train_iter = data.DataLoader(dataset=trainset, batch_size=32, shuffle=True, collate_fn=pad)
-validset = StsDataset('data/sts-dev.csv')
-valid_iter = data.DataLoader(dataset=validset, batch_size=32, shuffle=False, collate_fn=pad)
-testset = StsDataset('data/sts-test.csv')
-test_iter = data.DataLoader(dataset=testset, batch_size=32, shuffle=False, collate_fn=pad)
-
 class StsClassifier(nn.Module):
     def __init__(self):
         super(StsClassifier, self).__init__()
         self.xlnet = XLNetModel.from_pretrained('xlnet-large-cased')
-        # self.rnn = nn.RNN(input_size=1024, bidirectional=True, hidden_size=1024//2, num_layers=2, batch_first=True)
         self.linear1 = nn.Linear(1024, 1024)
         self.linear2 = nn.Linear(1024, 512)
         self.linear3 = nn.Linear(512, 1)
@@ -88,7 +116,7 @@ class StsClassifier(nn.Module):
 
     def forward(self, x1_x2):
         x1_x2 = self.xlnet(x1_x2.cuda())[0]
-        z1 = self.activation(self.linear1(x1_x2[:, -1, :]))  # Linear transformation from RNN's output to the number of classes
+        z1 = self.activation(self.linear1(x1_x2[:, -1, :]))  # Feed last token in sequence ('<cls>') from XLNet to FFNN
         z2 = self.activation(self.linear2(z1))
         z3 = self.linear3(z2)
         return z3
@@ -99,65 +127,88 @@ class StsClassifier(nn.Module):
         '''
         return self.forward(x1_x2)
 
-model = StsClassifier()  # RNN with embedding object
-model.cuda()  #send model to the GPU
-optimizer = optim.Adam(model.parameters(), lr=1e-5)  # Optimizing with Adam
-loss_func = nn.MSELoss()
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--train_path", type=str, default='./data/sts-train.csv')
+    parser.add_argument("--valid_path", type=str, default='data/sts-dev.csv')
+    parser.add_argument("--test_path", type=str, default='data/sts-test.csv')
+    parser.add_argument("--learning_rate", type=float, default=1e-5)
+    parser.add_argument("--output_file", type=str, default="./output/test_bert.txt")
+    parser.add_argument("--early_stopping", type=int, default=5)
+    args = parser.parse_args()
 
-history = []  # list for storing historical F1 scores. Used for early stopping.
-best_weights = None
-run = True
-while run:
-    model.train()
-    for i, batch in enumerate(train_iter):  # Runs batches on training set
-        words1, words2, x1, x2, y, seqlen1, seqlen2, seqlen3, x1_x2 = batch
-        optimizer.zero_grad()  # zero all gradients
-        yhat = model(x1_x2)  # Forward pass through Neural Net
+    #  Load the training, validation, and test datasets
+    trainset = StsDataset(args.train_path)
+    train_iter = data.DataLoader(dataset=trainset, batch_size=32, shuffle=True, collate_fn=pad)
+    validset = StsDataset(args.valid_path)
+    valid_iter = data.DataLoader(dataset=validset, batch_size=32, shuffle=False, collate_fn=pad)
+    testset = StsDataset(args.test_path)
+    test_iter = data.DataLoader(dataset=testset, batch_size=32, shuffle=False, collate_fn=pad)
 
-        yhat = yhat.reshape(-1) # reshapes to (num_sequences * sequence_length, num_classes)
-        y = y.reshape(-1)  # reshapes to (num_sequences * sequence_length)
+    model = StsClassifier()  # Initialize the STS model
+    model.cuda()  # send model to the GPU
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)  # Optimizing with Adam
+    loss_func = nn.MSELoss()
 
-        loss = loss_func(yhat, y.cuda())  # Computes loss
-        loss.backward()  # Back propagates loss
-        optimizer.step()  # Updates weights
-
-        if i % 10 == 0:  # monitoring loss
-            print(f"step: {i}, loss: {loss.item()}")
-
-    model.eval()  # set model to eval mode
-    current_valiation_loss = 0.0
-    ys, yhs = [], []
-    with torch.no_grad():  # Don't store gradients.
-        for i, batch in enumerate(valid_iter):
+    history = []  # list for storing historical F1 scores. Used for early stopping.
+    best_weights = None
+    run = True
+    while run:
+        model.train()
+        for i, batch in enumerate(train_iter):  # Runs batches on training set
             words1, words2, x1, x2, y, seqlen1, seqlen2, seqlen3, x1_x2 = batch
-            yhat = model.predict(x1_x2).to(torch.float32)
-            yhs.extend(yhat.tolist())
-            ys.extend(y.tolist())
+            optimizer.zero_grad()  # zero all gradients
+            yhat = model(x1_x2)  # Forward pass through Neural Net
 
-    mse_loss = nn.MSELoss()
-    mse_loss = mse_loss(torch.FloatTensor(yhs).flatten(), torch.FloatTensor(ys).flatten())
-    print("Validation Mean Squared Error:", mse_loss)
-    history.append(mse_loss)
+            yhat = yhat.reshape(-1)  # reshapes to (num_sequences * sequence_length, num_classes)
+            y = y.reshape(-1)  # reshapes to (num_sequences * sequence_length)
 
-    history.reverse()
-    if history.index(max(history)) > 5:  # Early stopping mechanism. If the best F1 score was more than 5 epochs ago, stop.
-        run = False
-    elif history.index(max(history)) == 0:  #Save weights if they improved performance on validation set.
-        best_weights = model.state_dict()
-    history.reverse()
+            loss = loss_func(yhat, y.cuda())  # Computes loss
+            loss.backward()  # Back propagates loss
+            optimizer.step()  # Updates weights
 
-model.load_state_dict(best_weights)  # Load the best weights
+            if i % 10 == 0:  # monitoring loss
+                print(f"step: {i}, loss: {loss.item()}")
 
-model.eval()
-yhats = []
-with torch.no_grad():
-    for i, batch in enumerate(test_iter):
-        words1, words2, x1, x2, y, seqlen1, seqlen2, seqlen3, x1_x2 = batch
+        model.eval()  # set model to eval mode
+        current_valiation_loss = 0.0
+        ys, yhs = [], []
+        with torch.no_grad():  # Don't store gradients.
+            for i, batch in enumerate(valid_iter):
+                words1, words2, x1, x2, y, seqlen1, seqlen2, seqlen3, x1_x2 = batch
+                yhat = model.predict(x1_x2).to(torch.float32)
+                yhs.extend(yhat.tolist())
+                ys.extend(y.tolist())
 
-        y_hat = model(x1_x2)
-        yhats.extend(y_hat.tolist())
+        mse_loss = nn.MSELoss()
+        mse_loss = mse_loss(torch.FloatTensor(yhs).flatten(), torch.FloatTensor(ys).flatten())
+        print("Validation Mean Squared Error:", mse_loss)
+        history.append(mse_loss)
 
-# save test results to file to compute Pearson Correlation Coefficient
-with open("./output/test_xlnet.txt", 'w') as fout:
-    for yhat in yhats:
-        fout.write("%f\n"%yhat[0])
+        history.reverse()
+        if history.index(
+                max(history)) > args.early_stopping:  # Early stopping mechanism. If the best F1 score was more than 5 epochs ago, stop.
+            run = False
+        elif history.index(max(history)) == 0:  # Save weights if they improved performance on validation set.
+            best_weights = model.state_dict()
+        history.reverse()
+
+    model.load_state_dict(best_weights)  # Load the best weights
+
+    model.eval()
+    yhats = []
+    with torch.no_grad():
+        for i, batch in enumerate(test_iter):
+            words1, words2, x1, x2, y, seqlen1, seqlen2, seqlen3, x1_x2 = batch
+
+            y_hat = model(x1_x2)
+            yhats.extend(y_hat.tolist())
+
+    # save test results to file to compute Pearson Correlation Coefficient
+    with open(args.output_file, 'w') as fout:
+        for yhat in yhats:
+            fout.write("%f\n" % yhat[0])
+
+
+if __name__ == '__main__':
+    main()
