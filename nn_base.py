@@ -1,3 +1,45 @@
+"""
+Author: Paul Barry and Rahul Pandey
+Description: AIT726 Term Project
+
+Neural Network and Logistic Regression approach to train and evaluate similarity initialized with pretrained word embeddings.
+
+NOTE: Before executing this script, please update the pretrained word embeddings file path in `config_baseline.yml`
+This script requires Py YAML package. To install with pip:
+> pip install pyyaml
+
+Usage: python nn_base.py --path <path_of_sts_data> --eval_data_type <test/train/dev> --word_embedding <word2vec/glove_42b/glove_840b> --model <lr/nn>
+
+e.g.
+To evaluate test data:
+> python baseline.py --path ./data/ --eval_data_type test --word_embedding word2vec
+> python baseline.py --path ./data/ --eval_data_type test --word_embedding glove_42b
+> python baseline.py --path ./data/ --eval_data_type test --word_embedding glove_840b
+
+To evaluate train data:
+> python baseline.py --path ./data/ --eval_data_type train --word_embedding word2vec
+> python baseline.py --path ./data/ --eval_data_type train --word_embedding glove_42b
+> python baseline.py --path ./data/ --eval_data_type train --word_embedding glove_840b
+
+To evaluate dev data:
+> python baseline.py --path ./data/ --eval_data_type dev --word_embedding word2vec
+> python baseline.py --path ./data/ --eval_data_type dev --word_embedding glove_42b
+> python baseline.py --path ./data/ --eval_data_type dev --word_embedding glove_840b
+
+Best pearson correlation coefficient got was 62.35% with word2vec on test set.
+
+Flow:
+i. main
+ii. Parse arguments
+iii. Load dataset  (load_data)
+    1. Open and preprocess train, validation, and test datasets.
+iv. Get baseline results (get_baseline_results_embeddings)
+    1. Load the pretrained word embeddings
+    2. for each sentences, get the average of their word embeddings vectors
+    3. Take cosine similarity and scale to 5
+v. store and evaluate the results (evaluate_result)
+
+"""
 import argparse
 import imp
 import sys
@@ -27,15 +69,11 @@ STOPWORDS = set(stopwords.words("english"))
 np.set_printoptions(precision=30)
 np.random.seed(1)  # random seeding for reproducability
 
-WORD2VEC_PATH = "data/GoogleNews-vectors-negative300.bin"
-GLOVE_PATH = {"42b": "",
-            "840b": "/Users/rahulpandey/Downloads/mason/data/input/word_embeddings/glove.840B.300d.txt"}
+pretrained_model_path = yaml.safe_load(open("config_baseline.yml", "r"))
+WORD2VEC_PATH = pretrained_model_path["word2vec"]
+GLOVE_PATH = pretrained_model_path["glove"]
 
 
-def pre_process_text(text):
-    text_split = word_tokenize(text)
-    text_split = [x for x in text_split if x not in STOPWORDS and x not in string.punctuation]  # removing stop words
-    return " ".join(text_split)
 
 
 def load_data(data_path):
@@ -89,45 +127,8 @@ def get_glove_data(train_size):
     return model, dims
 
 
-def get_baseline_results_embeddings(data_dict, file_type, word_embedding, distance):
-    """
-
-    """
-    print("Loading Embeddings Model\n")
-    if word_embedding == "word2vec":
-        model, dims = (gensim.models.KeyedVectors.load_word2vec_format(WORD2VEC_PATH, binary=True), 300)
-    else:
-        model, dims = get_glove_data(train_size=word_embedding.split("_")[-1])
-    print("Computing %s distance for similarity" % (distance))
-    df = data_dict[file_type]
-    original = df["score"].tolist()
-    predicted = []
-    is_binary = True if word_embedding == "word2vec" else False
-    X = []
-    Y = []
-    for i in range(len(df)):
-        text1 = df.loc[i, "text1"]
-        text2 = df.loc[i, "text2"]
-        embed_1 = get_word_embedding(text1, model, dims, is_binary)
-        embed_2 = get_word_embedding(text2, model, dims, is_binary)
-        predicted.append(np.dot(embed_1, embed_2) / (np.linalg.norm(embed_1) * np.linalg.norm(embed_2)))
-    predicted = [x*5 for x in predicted]   # scale to 5
-
-    now = datetime.datetime.now()
-    out_file_name = "output/%s_%s_%s.txt" % (file_type, word_embedding, now.strftime("%Y_%m_%d_%H_%M"))
-    with open(out_file_name, "w") as f:
-        for p in predicted:
-            f.write("%.3f\n" % (p))
-    print("Saved the predicted scores in %s " % (out_file_name))
-    return out_file_name
-
 
 def train(data_dict, word_embedding, classifier, model, dims, max_run):
-    # print("Loading Embeddings Model\n")
-    # if word_embedding == "word2vec":
-    #     model, dims = (gensim.models.KeyedVectors.load_word2vec_format(WORD2VEC_PATH, binary=True), 300)
-    # else:
-    #     model, dims = get_glove_data(train_size=word_embedding.split("_")[-1])
     train_set = data_dict['train']
     valid_set = data_dict['dev']
     predicted = []
@@ -145,8 +146,9 @@ def train(data_dict, word_embedding, classifier, model, dims, max_run):
         embed_2 = get_word_embedding(text2, model, dims, is_binary)
         train_X.append(np.concatenate((embed_1, embed_2)))
         train_Y.append(train_set.loc[i, "score"])
-    train_X = torch.FloatTensor(np.array(train_X)).cuda()
-    train_Y = torch.FloatTensor(np.array(train_Y).reshape((-1,1))).cuda()
+    if torch.cuda.is_available():
+        train_X = torch.FloatTensor(np.array(train_X)).cuda()
+        train_Y = torch.FloatTensor(np.array(train_Y).reshape((-1,1))).cuda()
 
     for i in range(len(valid_set)):
         text1 = valid_set.loc[i, "text1"]
@@ -157,8 +159,9 @@ def train(data_dict, word_embedding, classifier, model, dims, max_run):
         embed_2 = get_word_embedding(text2, model, dims, is_binary)
         valid_X.append(np.concatenate((embed_1, embed_2)))
         valid_Y.append(train_set.loc[i, "score"])
-    valid_X = torch.FloatTensor(np.array(valid_X)).cuda()
-    valid_Y = torch.FloatTensor(np.array(valid_Y).reshape((-1, 1))).cuda()
+    if torch.cuda.is_available():
+        valid_X = torch.FloatTensor(np.array(valid_X)).cuda()
+        valid_Y = torch.FloatTensor(np.array(valid_Y).reshape((-1, 1))).cuda()
 
     train_Y_scaled = train_Y/5.
     valid_Y_scaled = valid_Y/5.
@@ -208,8 +211,9 @@ def test(data_dict, word_embedding, classifier, model, dims):
         embed_2 = get_word_embedding(text2, model, dims, is_binary)
         test_X.append(np.concatenate((embed_1, embed_2)))
         test_Y.append(test_set.loc[i, "score"])
-    test_X = torch.FloatTensor(np.array(test_X)).cuda()
-    test_Y = torch.FloatTensor(np.array(test_Y).reshape((-1, 1))).cuda()
+    if torch.cuda.is_available():
+        test_X = torch.FloatTensor(np.array(test_X)).cuda()
+        test_Y = torch.FloatTensor(np.array(test_Y).reshape((-1, 1))).cuda()
     yhat = classifier.forward(test_X)
     yhat = yhat.reshape(-1).cpu().tolist()
     predicted = [x * 5 for x in yhat]  # scale to 5
@@ -222,6 +226,7 @@ def test(data_dict, word_embedding, classifier, model, dims):
     print("Saved the predicted scores in %s " % (out_file_name))
     return out_file_name
 
+
 class LogReg(nn.Module):
     def __init__(self, dims):
         super().__init__()
@@ -229,6 +234,7 @@ class LogReg(nn.Module):
         self.sigmoid = nn.Sigmoid()
     def forward(self, x):
         return self.sigmoid(self.linear(x))
+
 
 class FFNN(nn.Module):
     def __init__(self, dims, hidden_nodes):
@@ -244,6 +250,7 @@ class FFNN(nn.Module):
         a2 = self.sigmoid(z2)
         return a2
 
+
 def evaluate_result(out_file_name, file_type):
     original_file = "data/sts-%s.csv" % (file_type)
     predicted_file = out_file_name
@@ -258,7 +265,7 @@ def main():
     parser.add_argument("--path", type=str, default='./data/')
     parser.add_argument("--eval_data_type", type=str, default='test')
     parser.add_argument("--word_embedding", type=str, default='word2vec')
-    parser.add_argument("--distance", type=str, default='cosine')
+    parser.add_argument("--model", type=str, default='lr')
     args = parser.parse_args()
     print("%s\nSemantic Textual Similarity\nPaul Barry and Rahul Pandey\n%s\n\nLoading Dataset" % ("*"*100, "*"*100))
     train_set, dev_set, test_set = load_data(data_path=args.path)
@@ -273,18 +280,19 @@ def main():
     for k in range(1, 100, 10):
         max_run = 100 * k
         print("Max Run", max_run)
-        model = LogReg(600).cuda()
-        # model = FFNN(600, 300).cuda()
+        if args.model == "lr":
+            model = LogReg(600)
+        else:
+            model = FFNN(600, 300)
+        if torch.cuda.is_available():
+            print("Using GPU...")
+            model = model.cuda()
         train(data_dict, word_embedding=args.word_embedding, classifier=model, model=w_model, dims=dims, max_run=max_run)
         out_file_name = test(data_dict, word_embedding=args.word_embedding, classifier=model, model=w_model, dims=dims)
-        # out_file_name = get_baseline_results_embeddings(data_dict,
-        #                                                 file_type=args.eval_data_type,
-        #                                                 word_embedding=args.word_embedding,
-        #                                                 distance=args.distance)
         score = evaluate_result(out_file_name, file_type=args.eval_data_type)
-        print("Evaluated %s data by comparing %s distance of its %s word embeddings.\nPearson score = %.4f\n%s"
-                % (args.eval_data_type, args.distance, args.word_embedding, score, "*"*100))
-    # return
+        print("Evaluated %s data by training %s model initialized by its %s word embeddings.\nPearson score = %.4f\n%s"
+                % (args.eval_data_type, args.model, args.word_embedding, score, "*"*100))
+    return
 
 
 if __name__ == '__main__':
