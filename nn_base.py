@@ -148,7 +148,7 @@ def train(data_dict, word_embedding, classifier, model, dims, max_run):
 
     train_X = torch.FloatTensor(np.array(train_X))
     train_Y = torch.FloatTensor(np.array(train_Y).reshape((-1,1)))
-    if torch.cuda.is_available()::
+    if torch.cuda.is_available():
         train_X = train_X.cuda()
         train_Y = train_Y.cuda()
 
