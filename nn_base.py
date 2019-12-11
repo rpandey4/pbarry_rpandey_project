@@ -140,9 +140,7 @@ def train(data_dict, word_embedding, classifier, model, dims, max_run):
     valid_Y = []
     for i in range(len(train_set)):
         text1 = train_set.loc[i, "text1"]
-        text1 = pre_process_text(text1)
         text2 = train_set.loc[i, "text2"]
-        text2 = pre_process_text(text2)
         embed_1 = get_word_embedding(text1, model, dims, is_binary)
         embed_2 = get_word_embedding(text2, model, dims, is_binary)
         train_X.append(np.concatenate((embed_1, embed_2)))
@@ -153,9 +151,7 @@ def train(data_dict, word_embedding, classifier, model, dims, max_run):
 
     for i in range(len(valid_set)):
         text1 = valid_set.loc[i, "text1"]
-        text1 = pre_process_text(text1)
         text2 = valid_set.loc[i, "text2"]
-        text2 = pre_process_text(text2)
         embed_1 = get_word_embedding(text1, model, dims, is_binary)
         embed_2 = get_word_embedding(text2, model, dims, is_binary)
         valid_X.append(np.concatenate((embed_1, embed_2)))
@@ -205,9 +201,7 @@ def test(data_dict, word_embedding, classifier, model, dims):
     test_Y = []
     for i in range(len(test_set)):
         text1 = test_set.loc[i, "text1"]
-        text1 = pre_process_text(text1)
         text2 = test_set.loc[i, "text2"]
-        text2 = pre_process_text(text2)
         embed_1 = get_word_embedding(text1, model, dims, is_binary)
         embed_2 = get_word_embedding(text2, model, dims, is_binary)
         test_X.append(np.concatenate((embed_1, embed_2)))
