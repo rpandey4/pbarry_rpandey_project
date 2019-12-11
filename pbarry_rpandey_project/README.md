@@ -14,8 +14,10 @@ Baseline:
 
 a. Word2Vec (0.6235 PRR)
   * > perl data/correlation.pl data/sts-test.csv output/base_word2vec_best.txt
+
 b. GloVe 42B (0.2987 PRR)
   * > perl data/correlation.pl data/sts-test.csv output/base_glove_42b_best.txt
+
 c. GloVe 840B (0.5473 PRR)
   * > perl data/correlation.pl data/sts-test.csv output/base_glove_840b_best.txt
 
@@ -23,6 +25,7 @@ Neural Network and Logistic Regression
 
 a. Logistic Regression (0.2778 PRR)
   * > perl data/correlation.pl data/sts-test.csv output/lr_word2vec_best.txt
+
 b. Neural Network (0.1784 PRR)
   * > perl data/correlation.pl data/sts-test.csv output/nn_word2vec_best.txt
 
@@ -30,8 +33,10 @@ Language Model
 
 a. BERT base (0.8118 PRR)
   * > perl data/correlation.pl data/sts-test.csv output/bert_base_8118.txt
+
 b. BERT large (0.8486 PRR)
   * > perl data/correlation.pl data/sts-test.csv output/bert_large_8486.txt
+
 c. XLNet (0.8958 PRR)
   * > perl data/correlation.pl data/sts-test.csv output/xlnet_8958_Relu.txt
 
