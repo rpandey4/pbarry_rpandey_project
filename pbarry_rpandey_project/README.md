@@ -59,17 +59,23 @@ Usage: python baseline.py --path <path_of_sts_data> --eval_data_type <test/train
 e.g.
 To evaluate test data:
 > python baseline.py --path ./data/ --eval_data_type test --word_embedding word2vec
+
 > python baseline.py --path ./data/ --eval_data_type test --word_embedding glove_42b
+
 > python baseline.py --path ./data/ --eval_data_type test --word_embedding glove_840b
 
 To evaluate train data:
 > python baseline.py --path ./data/ --eval_data_type train --word_embedding word2vec
+
 > python baseline.py --path ./data/ --eval_data_type train --word_embedding glove_42b
+
 > python baseline.py --path ./data/ --eval_data_type train --word_embedding glove_840b
 
 To evaluate dev data:
 > python baseline.py --path ./data/ --eval_data_type dev --word_embedding word2vec
+
 > python baseline.py --path ./data/ --eval_data_type dev --word_embedding glove_42b
+
 > python baseline.py --path ./data/ --eval_data_type dev --word_embedding glove_840b
 
 Best pearson correlation coefficient got was 62.35% with word2vec on test set.
