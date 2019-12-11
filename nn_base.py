@@ -145,12 +145,12 @@ def train(data_dict, word_embedding, classifier, model, dims, max_run):
         embed_2 = get_word_embedding(text2, model, dims, is_binary)
         train_X.append(np.concatenate((embed_1, embed_2)))
         train_Y.append(train_set.loc[i, "score"])
-    if torch.cuda.is_available():
-        train_X = torch.FloatTensor(np.array(train_X)).cuda()
-        train_Y = torch.FloatTensor(np.array(train_Y).reshape((-1,1))).cuda()
-    else:
-        train_X = np.array(train_X)
-        train_Y = np.array(train_Y)
+
+    train_X = torch.FloatTensor(np.array(train_X))
+    train_Y = torch.FloatTensor(np.array(train_Y).reshape((-1,1)))
+    if torch.cuda.is_available()::
+        train_X = train_X.cuda()
+        train_Y = train_Y.cuda()
 
     for i in range(len(valid_set)):
         text1 = valid_set.loc[i, "text1"]
@@ -159,12 +159,12 @@ def train(data_dict, word_embedding, classifier, model, dims, max_run):
         embed_2 = get_word_embedding(text2, model, dims, is_binary)
         valid_X.append(np.concatenate((embed_1, embed_2)))
         valid_Y.append(train_set.loc[i, "score"])
+
+    valid_X = torch.FloatTensor(np.array(valid_X))
+    valid_Y = torch.FloatTensor(np.array(valid_Y).reshape((-1, 1)))
     if torch.cuda.is_available():
-        valid_X = torch.FloatTensor(np.array(valid_X)).cuda()
-        valid_Y = torch.FloatTensor(np.array(valid_Y).reshape((-1, 1))).cuda()
-    else:
-        valid_X = np.array(valid_X)
-        valid_Y = np.array(valid_Y)
+        valid_X = valid_X.cuda()
+        valid_Y = valid_Y.cuda()
     train_Y_scaled = train_Y/5.
     valid_Y_scaled = valid_Y/5.
     opimizer = optim.SGD(classifier.parameters(), lr=0.01)
@@ -211,12 +211,12 @@ def test(data_dict, word_embedding, classifier, model, dims):
         embed_2 = get_word_embedding(text2, model, dims, is_binary)
         test_X.append(np.concatenate((embed_1, embed_2)))
         test_Y.append(test_set.loc[i, "score"])
+
+    test_X = torch.FloatTensor(np.array(test_X))
+    test_Y = torch.FloatTensor(np.array(test_Y).reshape((-1, 1)))
     if torch.cuda.is_available():
-        test_X = torch.FloatTensor(np.array(test_X)).cuda()
-        test_Y = torch.FloatTensor(np.array(test_Y).reshape((-1, 1))).cuda()
-    else:
-        test_X = np.array(test_X)
-        test_Y = np.array(test_Y)
+        test_X = test_X.cuda()
+        test_Y = test_Y.cuda()
     yhat = classifier.forward(test_X)
     yhat = yhat.reshape(-1).cpu().tolist()
     predicted = [x * 5 for x in yhat]  # scale to 5
