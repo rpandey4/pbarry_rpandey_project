@@ -9,6 +9,7 @@ Arguments:
     --learning_rate to set the learning rate of the file
     --output_file to set the path and filename for the model's predictions
     --early_stopping to set the early stopping threshold
+    --batch_size default 32 use low value for small gpus
 Best pearson correlation coefficient uses default parameters to achieve 89.58.
 
 Flow:
@@ -135,15 +136,16 @@ def main():
     parser.add_argument("--learning_rate", type=float, default=1e-5)
     parser.add_argument("--output_file", type=str, default="./output/test_bert.txt")
     parser.add_argument("--early_stopping", type=int, default=5)
+    parser.add_argument("--batch_size", type=int, default=32)
     args = parser.parse_args()
 
     #  Load the training, validation, and test datasets
     trainset = StsDataset(args.train_path)
-    train_iter = data.DataLoader(dataset=trainset, batch_size=32, shuffle=True, collate_fn=pad)
+    train_iter = data.DataLoader(dataset=trainset, batch_size=args.batch_size, shuffle=True, collate_fn=pad)
     validset = StsDataset(args.valid_path)
-    valid_iter = data.DataLoader(dataset=validset, batch_size=32, shuffle=False, collate_fn=pad)
+    valid_iter = data.DataLoader(dataset=validset, batch_size=args.batch_size, shuffle=False, collate_fn=pad)
     testset = StsDataset(args.test_path)
-    test_iter = data.DataLoader(dataset=testset, batch_size=32, shuffle=False, collate_fn=pad)
+    test_iter = data.DataLoader(dataset=testset, batch_size=args.batch_size, shuffle=False, collate_fn=pad)
 
     model = StsClassifier()  # Initialize the STS model
     model.cuda()  # send model to the GPU

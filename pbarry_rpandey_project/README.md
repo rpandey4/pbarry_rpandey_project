@@ -133,6 +133,7 @@ Arguments:
     --learning_rate to set the learning rate of the file
     --output_file to set the path and filename for the model's predictions
     --early_stopping to set the early stopping threshold
+    --batch_size default 32 use low value for small gpus
 Best pearson correlation coefficient uses default parameters to achieve 84.86.
 
 Flow:
@@ -167,6 +168,7 @@ Arguments:
     --learning_rate to set the learning rate of the file
     --output_file to set the path and filename for the model's predictions
     --early_stopping to set the early stopping threshold
+    --batch_size default 32 use low value for small gpus
 Best pearson correlation coefficient uses default parameters to achieve 89.58.
 
 Flow:
