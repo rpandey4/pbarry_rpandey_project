@@ -12,7 +12,7 @@ Usage: python nn_base.py --path <path_of_sts_data> --eval_data_type <test/train/
 
 e.g.
 To evaluate test data:
-> python baseline.py --path ./data/ --eval_data_type test --word_embedding word2vec
+> python nn_base.py --path ./data/ --eval_data_type test --word_embedding word2vec --model lr
 > python baseline.py --path ./data/ --eval_data_type test --word_embedding glove_42b
 > python baseline.py --path ./data/ --eval_data_type test --word_embedding glove_840b
 
@@ -62,6 +62,7 @@ from torch.autograd import Variable
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 import string
+import yaml
 
 
 STOPWORDS = set(stopwords.words("english"))
