@@ -118,6 +118,12 @@ vi. Train the model
 vii. Predict and evaluate on test data
 
 #### Language Model
+
+NOTE that our Language Model based approach requires transformers package and GPU.
+
+To install with pip:
+> pip install transformers
+
 #### BERT based Approach
 Usage: python BERT_STS.py
 Arguments:
