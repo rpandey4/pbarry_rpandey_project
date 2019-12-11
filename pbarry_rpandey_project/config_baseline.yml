@@ -1,0 +1,4 @@
+word2vec: "/Users/rahulpandey/Downloads/mason/data/input/word_embeddings/GoogleNews-vectors-negative300.bin"
+glove:
+  42b: "/Users/rahulpandey/Downloads/mason/data/input/word_embeddings/glove.42B.300d.txt"
+  840b: "/Users/rahulpandey/Downloads/mason/data/input/word_embeddings/glove.840B.300d.txt"
